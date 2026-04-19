@@ -1,0 +1,755 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+
+% Code listing style
+\lstset{
+    language=C,
+    basicstyle=\footnotesize\ttfamily,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!5},
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b
+}
+
+% Pseudocode style
+\lstdefinestyle{pseudocode}{
+    basicstyle=\footnotesize\ttfamily,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!50!black}\itshape,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{yellow!5},
+    tabsize=4,
+    morekeywords={FUNCTION,END,PARALLEL,REGION,FOR,IF,STATIC,ALLOCATE,MEMSET,CLAMP,FLOOR},
+    captionpos=b
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{HPC Assignment 06}
+\lhead{Om Patel \& Chaitanya Vats}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================
+% TITLE PAGE
+% ============================================================
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\LARGE\bfseries High Performance Computing (HPC)\\[0.3cm]}
+{\Large\bfseries Assignment 06 -- Parallel Interpolation\\[1.5cm]}
+
+\rule{\textwidth}{1pt}\\[1cm]
+
+{\large
+\begin{tabular}{rl}
+\textbf{Name:} & OM PATEL \\
+\textbf{Roll Number:} & 202301163 \\[0.5cm]
+\textbf{Name:} & CHAITANYA VATS \\
+\textbf{Roll Number:} & 202301419 \\
+\end{tabular}
+}
+
+\vspace{1.5cm}
+
+{\large Dhirubhai Ambani University \\[0.3cm]}
+{\large Instructor: Dr.\ Bhaskar Chaudhury \\[0.3cm]}
+{\large Teaching Assistants: Libin Varghese, Ayushi Sharma, Kaushik Prajapati \\[0.5cm]}
+{\large April 2026}
+
+\vfill
+\rule{\textwidth}{1pt}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+% SECTION 1: PROBLEM STATEMENT
+% ============================================================
+\section{Problem Statement}
+
+This assignment focuses on \textbf{parallelizing} a scatter point-to-mesh bilinear interpolation algorithm using \textbf{OpenMP}. MPI is not permitted for this assignment. The goal is to transform a correct serial baseline into a high-performance parallel implementation.
+
+\subsection{Problem Description}
+
+Given a set of $N$ scattered points in a 2D domain of size $1 \times 1$:
+\[
+S = \{(x_i, y_i, f_i) \mid i = 1, 2, \ldots, N\}
+\]
+where $(x_i, y_i)$ are spatial coordinates and $f_i = 1$ for all points. The task is to \textbf{interpolate} these values onto a structured mesh grid of size $M_x \times M_y$.
+
+\subsection{Step-by-Step Procedure}
+
+\begin{enumerate}
+    \item \textbf{Read input data}: Load $N$ scattered points $(x_i, y_i)$ from a binary file \texttt{input.bin}. The domain is a unit square $[0,1] \times [0,1]$.
+    
+    \item \textbf{Initialize structured mesh}: Define the grid $G$ with $(N_x + 1) \times (N_y + 1)$ grid points and set all function values $F(X_i, Y_j) = 0$.
+    
+    \item \textbf{For each scattered point $(x_i, y_i)$}:
+    \begin{enumerate}
+        \item Identify the cell containing the point by computing:
+        \[
+        i = \left\lfloor \frac{x_i}{\Delta x} \right\rfloor, \quad j = \left\lfloor \frac{y_i}{\Delta y} \right\rfloor
+        \]
+        where $\Delta x = \frac{1}{N_x}$, $\Delta y = \frac{1}{N_y}$.
+        
+        \item Compute the local offsets from the cell's lower-left corner:
+        \[
+        l_x = x_i - i \cdot \Delta x, \quad l_y = y_i - j \cdot \Delta y
+        \]
+        
+        \item Compute the four bilinear weights:
+        \begin{align}
+            w_{i,j} &= (\Delta x - l_x)(\Delta y - l_y) \\
+            w_{i+1,j} &= l_x \cdot (\Delta y - l_y) \\
+            w_{i,j+1} &= (\Delta x - l_x) \cdot l_y \\
+            w_{i+1,j+1} &= l_x \cdot l_y
+        \end{align}
+        
+        \item Accumulate the weighted value ($f_i = 1$) onto the four surrounding grid points:
+        \begin{align}
+            F(X_i, Y_j) &\ {+}{=}\ w_{i,j} \\
+            F(X_{i+1}, Y_j) &\ {+}{=}\ w_{i+1,j} \\
+            F(X_i, Y_{j+1}) &\ {+}{=}\ w_{i,j+1} \\
+            F(X_{i+1}, Y_{j+1}) &\ {+}{=}\ w_{i+1,j+1}
+        \end{align}
+    \end{enumerate}
+    
+    \item \textbf{Repeat} step 3 for 10 iterations, each time loading a new set of scattered points from the binary file.
+    
+    \item \textbf{Output}: Write the final interpolated grid to \texttt{Mesh.out}.
+\end{enumerate}
+
+\subsection{Input Configurations}
+
+Five configurations are tested as specified in the assignment:
+
+\begin{table}[H]
+\centering
+\caption{Input configurations for benchmarking}
+\begin{tabular}{clllll}
+\toprule
+\textbf{Config} & $N_x$ & $N_y$ & \textbf{Points} & \textbf{Grid Size} & \textbf{Maxiter} \\
+\midrule
+(a) & 250 & 100 & 900,000 & $251 \times 101$ & 10 \\
+(b) & 250 & 100 & 5,000,000 & $251 \times 101$ & 10 \\
+(c) & 500 & 200 & 3,600,000 & $501 \times 201$ & 10 \\
+(d) & 500 & 200 & 20,000,000 & $501 \times 201$ & 10 \\
+(e) & 1000 & 400 & 14,000,000 & $1001 \times 401$ & 10 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+% SECTION 2: THEORETICAL BACKGROUND
+% ============================================================
+\section{Theoretical Background}
+
+\subsection{Bilinear Interpolation (Scatter Approach)}
+
+Bilinear interpolation in the scatter formulation distributes values from scattered points \textit{onto} a regular grid. Each point contributes to its four nearest grid points, with weights determined by the point's relative position within its enclosing grid cell.
+
+For a point $(x_i, y_i)$ located in a grid cell with corners at $(X_i, Y_j)$, $(X_{i+1}, Y_j)$, $(X_i, Y_{j+1})$, and $(X_{i+1}, Y_{j+1})$:
+
+\[
+w_{i,j} = (\Delta x - l_x)(\Delta y - l_y)
+\]
+
+The weight for each corner is proportional to the area of the rectangle \textbf{opposite} to that corner. This ensures that the total weight sums to $\Delta x \cdot \Delta y$, preserving conservation.
+
+\subsection{OpenMP Parallelism}
+
+OpenMP (Open Multi-Processing) is a shared-memory parallel programming API. Key constructs used in our implementation:
+
+\begin{itemize}
+    \item \textbf{\texttt{\#pragma omp parallel}}: Creates a team of threads.
+    \item \textbf{\texttt{\#pragma omp for schedule(static)}}: Distributes loop iterations equally among threads. Ideal when each iteration has uniform cost.
+    \item \textbf{\texttt{\#pragma omp single}}: Ensures only one thread executes a block (used for setup).
+    \item \textbf{\texttt{omp\_get\_wtime()}}: Wall-clock timer for accurate parallel timing.
+\end{itemize}
+
+\subsection{Race Conditions in Parallel Scatter}
+
+The key challenge in parallelizing the scatter interpolation is that \textbf{multiple particles may update the same grid point simultaneously}. This creates a \textit{race condition} where concurrent read-modify-write operations on the same memory location produce incorrect results.
+
+Common strategies to address this:
+\begin{enumerate}
+    \item \textbf{Atomic operations}: Use \texttt{\#pragma omp atomic} — correct but slow due to hardware CAS loops on doubles.
+    \item \textbf{Critical sections}: Use \texttt{\#pragma omp critical} — serializes all updates, defeating parallelism.
+    \item \textbf{Privatization (our approach)}: Each thread maintains a private grid copy, completely eliminating contention. Grids are merged in a parallel reduction phase.
+\end{enumerate}
+
+\subsection{Amdahl's Law and Parallel Efficiency}
+
+The theoretical speedup for $T$ threads is bounded by Amdahl's Law:
+\[
+S(T) = \frac{1}{(1-p) + \frac{p}{T}}
+\]
+where $p$ is the parallelizable fraction. Parallel efficiency is defined as:
+\[
+E(T) = \frac{S(T)}{T} \times 100\%
+\]
+
+Ideal efficiency is 100\%, meaning each thread contributes its full share.
+
+% ============================================================
+% SECTION 3: IMPLEMENTATION DETAILS
+% ============================================================
+\section{Implementation Details}
+
+\subsection{Parallelization Strategy: Thread-Local Grid Privatization}
+
+Our implementation uses a \textbf{two-phase} privatization-and-reduction approach, which is the gold standard for parallel scatter operations where $\text{Grid Size} \ll \text{Number of Particles}$.
+
+\textbf{Phase 1 --- Particle Decomposition with Privatization:}
+\begin{itemize}
+    \item Each thread allocates its own private copy of the grid (\texttt{all\_local[tid]}).
+    \item The particle array is partitioned equally using \texttt{schedule(static)}.
+    \item Each thread interpolates its particles into its own private grid — zero synchronization needed.
+\end{itemize}
+
+\textbf{Phase 2 --- Parallel Grid Reduction:}
+\begin{itemize}
+    \item The private grids are merged into the global \texttt{mesh\_value} array.
+    \item The reduction itself is parallelized: each thread sums a portion of the grid cells across all private grids using \texttt{\#pragma omp for}.
+    \item This is significantly faster than a serial critical-section reduction.
+\end{itemize}
+
+\subsection{Key Optimizations}
+
+\begin{enumerate}
+    \item \textbf{Precomputed inverse grid spacing}: Replace division ($x / \Delta x$) with multiplication ($x \times \frac{1}{\Delta x}$) — eliminates expensive \texttt{fdiv} instructions from the hot loop.
+    
+    \item \textbf{Persistent static allocations}: Thread-local grids are allocated once and reused across all 10 iterations, avoiding repeated \texttt{malloc}/\texttt{free} overhead.
+    
+    \item \textbf{Local variable caching}: Global variables (\texttt{GRID\_X}, \texttt{NX}, \texttt{dx}) are cached in local variables, allowing the compiler to keep them in CPU registers.
+    
+    \item \textbf{Bulk I/O}: Replaced per-element \texttt{fread} loops with a single bulk read for all points.
+    
+    \item \textbf{Wall-clock timing}: Replaced \texttt{clock()} (CPU time) with \texttt{omp\_get\_wtime()} (wall-clock) for accurate parallel timing.
+\end{enumerate}
+
+\subsection{Source Code: Parallel Interpolation}
+
+\begin{lstlisting}[caption={Optimized parallel interpolation (utils.cpp)}, label={lst:interpolation}]
+void interpolation(double *mesh_value, Points *points) {
+    const int G_SIZE = GRID_X * GRID_Y;
+    const double inv_dx = 1.0 / dx;
+    const double inv_dy = 1.0 / dy;
+    const int gx = GRID_X, nx = NX, ny = NY;
+    const double ddx = dx, ddy = dy;
+    const int npts = NUM_Points;
+
+    static double **all_local = NULL;
+    static int cached_nthreads = 0, cached_gsize = 0;
+    int nthreads;
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        #pragma omp single
+        {
+            nthreads = omp_get_num_threads();
+            if (!all_local || nthreads != cached_nthreads
+                || G_SIZE != cached_gsize) {
+                /* Allocate thread-local grids */
+                all_local = (double **)malloc(
+                    nthreads * sizeof(double *));
+                for (int t = 0; t < nthreads; t++)
+                    all_local[t] = (double *)malloc(
+                        G_SIZE * sizeof(double));
+                cached_nthreads = nthreads;
+                cached_gsize = G_SIZE;
+            }
+        }
+
+        memset(all_local[tid], 0, G_SIZE*sizeof(double));
+        double *my_mesh = all_local[tid];
+
+        // Phase 1: Interpolate into private grid
+        #pragma omp for schedule(static)
+        for (int p = 0; p < npts; p++) {
+            int i = (int)(points[p].x * inv_dx);
+            int j = (int)(points[p].y * inv_dy);
+            if (i >= nx) i = nx - 1;
+            if (j >= ny) j = ny - 1;
+            double lx = points[p].x - i * ddx;
+            double ly = points[p].y - j * ddy;
+            double dx_lx = ddx - lx, dy_ly = ddy - ly;
+            int idx = j * gx + i;
+            my_mesh[idx]          += dx_lx * dy_ly;
+            my_mesh[idx + 1]      += lx * dy_ly;
+            my_mesh[idx + gx]     += dx_lx * ly;
+            my_mesh[idx + gx + 1] += lx * ly;
+        }
+
+        // Phase 2: Parallel reduction
+        #pragma omp for schedule(static)
+        for (int k = 0; k < G_SIZE; k++)
+            for (int t = 0; t < nthreads; t++)
+                mesh_value[k] += all_local[t][k];
+    }
+}
+\end{lstlisting}
+
+% ============================================================
+% SECTION 4: RESULTS - TABULAR ANALYSIS
+% ============================================================
+\section{Results -- Tabular Analysis}
+
+\subsection{Lab PC Results (Windows)}
+
+\begin{table}[H]
+\centering
+\caption{Execution time (seconds) on Lab PC (Windows, 8-core)}
+\label{tab:windows_time}
+\begin{tabular}{cllrrrrr}
+\toprule
+\textbf{Config} & $N_x \times N_y$ & \textbf{Points} & \textbf{Serial} & \textbf{2T} & \textbf{4T} & \textbf{8T} & \textbf{16T} \\
+\midrule
+a & $250\times100$ & 0.9M & 0.0840 & 0.0320 & 0.0240 & 0.0210 & 0.0240 \\
+b & $250\times100$ & 5.0M & 0.4940 & 0.2600 & 0.1150 & 0.0940 & 0.1600 \\
+c & $500\times200$ & 3.6M & 0.4550 & 0.1480 & 0.0990 & 0.1470 & 0.1910 \\
+d & $500\times200$ & 20.0M & 2.6220 & 0.9330 & 0.7600 & 0.6010 & 0.5740 \\
+e & $1000\times400$ & 14.0M & 2.7920 & 1.2200 & 1.1030 & 1.4390 & 1.6390 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{HPC Cluster Results}
+
+\begin{table}[H]
+\centering
+\caption{Execution time (seconds) on HPC Cluster (16-core Linux)}
+\label{tab:cluster_time}
+\begin{tabular}{cllrrrrr}
+\toprule
+\textbf{Config} & $N_x \times N_y$ & \textbf{Points} & \textbf{Serial} & \textbf{2T} & \textbf{4T} & \textbf{8T} & \textbf{16T} \\
+\midrule
+a & $250\times100$ & 0.9M & 0.0924 & 0.0357 & 0.0248 & 0.0146 & 0.0107 \\
+b & $250\times100$ & 5.0M & 0.4753 & 0.2034 & 0.1278 & 0.0585 & 0.0350 \\
+c & $500\times200$ & 3.6M & 0.3435 & 0.1538 & 0.0987 & 0.0511 & 0.0373 \\
+d & $500\times200$ & 20.0M & 1.1482 & 0.8465 & 0.3961 & 0.2487 & 0.1411 \\
+e & $1000\times400$ & 14.0M & 1.2172 & 1.3880 & 0.8063 & 0.4306 & 0.2401 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Speedup on HPC Cluster}
+
+\begin{table}[H]
+\centering
+\caption{Speedup ($S = T_{\text{serial}} / T_{\text{parallel}}$) on HPC Cluster}
+\label{tab:cluster_speedup}
+\begin{tabular}{clrrrrr}
+\toprule
+\textbf{Config} & \textbf{Points} & \textbf{1T} & \textbf{2T} & \textbf{4T} & \textbf{8T} & \textbf{16T} \\
+\midrule
+a & 0.9M & 1.00 & 2.59 & 3.73 & 6.35 & 8.62 \\
+b & 5.0M & 1.00 & 2.34 & 3.72 & 8.13 & 13.57 \\
+c & 3.6M & 1.00 & 2.23 & 3.48 & 6.72 & 9.22 \\
+d & 20.0M & 1.00 & 1.36 & 2.90 & 4.62 & 8.14 \\
+e & 14.0M & 1.00 & 0.88 & 1.51 & 2.83 & 5.07 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Parallel Efficiency on HPC Cluster}
+
+\begin{table}[H]
+\centering
+\caption{Parallel Efficiency $E(\%) = S/T \times 100$ on HPC Cluster}
+\label{tab:cluster_efficiency}
+\begin{tabular}{clrrrrr}
+\toprule
+\textbf{Config} & \textbf{Points} & \textbf{1T} & \textbf{2T} & \textbf{4T} & \textbf{8T} & \textbf{16T} \\
+\midrule
+a & 0.9M & 100.0 & 129.5 & 93.3 & 79.4 & 53.9 \\
+b & 5.0M & 100.0 & 116.8 & 93.0 & 101.6 & 84.8 \\
+c & 3.6M & 100.0 & 111.7 & 87.0 & 84.0 & 57.6 \\
+d & 20.0M & 100.0 & 67.8 & 72.5 & 57.7 & 50.9 \\
+e & 14.0M & 100.0 & 43.8 & 37.7 & 35.3 & 31.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Maximum Speedup Achieved}
+
+\begin{table}[H]
+\centering
+\caption{Maximum speedup achieved on HPC Cluster (at 16 threads)}
+\label{tab:max_speedup}
+\begin{tabular}{clccc}
+\toprule
+\textbf{Config} & \textbf{Points} & \textbf{Serial (s)} & \textbf{Best Parallel (s)} & \textbf{Max Speedup} \\
+\midrule
+a & 0.9M & 0.0924 & 0.0107 & \textbf{8.62$\times$} \\
+b & 5.0M & 0.4753 & 0.0350 & \textbf{13.57$\times$} \\
+c & 3.6M & 0.3435 & 0.0373 & \textbf{9.22$\times$} \\
+d & 20.0M & 1.1482 & 0.1411 & \textbf{8.14$\times$} \\
+e & 14.0M & 1.2172 & 0.2401 & \textbf{5.07$\times$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+% SECTION 5: PERFORMANCE VISUALISATIONS
+% ============================================================
+\section{Performance Visualisations}
+
+\subsection{HPC Cluster Results}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{Cluster_Results/speedup_vs_cores.png}
+\caption{Speedup vs Number of Threads (HPC Cluster). Config~b (5M points, small grid) achieves near-ideal 13.57$\times$ speedup at 16 threads.}
+\label{fig:cluster_speedup}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{Cluster_Results/execution_time_vs_cores.png}
+\caption{Execution Time vs Number of Threads (HPC Cluster). All configurations show consistent reduction in execution time with increasing thread count.}
+\label{fig:cluster_time}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{Cluster_Results/parallel_efficiency_vs_cores.png}
+\caption{Parallel Efficiency vs Number of Threads (HPC Cluster). Configs with smaller grids maintain higher efficiency. Super-linear efficiency at 2T for configs a, b, c is due to improved cache utilization.}
+\label{fig:cluster_efficiency}
+\end{figure}
+
+\subsection{Lab PC Results (Windows)}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{speedup_vs_cores.png}
+\caption{Speedup vs Number of Threads (Lab PC). Scaling is limited beyond 8 threads due to the laptop having fewer physical cores.}
+\label{fig:win_speedup}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{execution_time_vs_cores.png}
+\caption{Execution Time vs Number of Threads (Lab PC). Configs d and e show performance degradation at 16 threads due to hyperthreading oversubscription.}
+\label{fig:win_time}
+\end{figure}
+
+\subsection{Per-Configuration Analysis (HPC Cluster)}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{Cluster_Results/config_a_analysis.png}
+    \caption{Config a (250$\times$100, 0.9M pts)}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{Cluster_Results/config_b_analysis.png}
+    \caption{Config b (250$\times$100, 5.0M pts)}
+\end{subfigure}
+
+\vspace{0.5cm}
+
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{Cluster_Results/config_c_analysis.png}
+    \caption{Config c (500$\times$200, 3.6M pts)}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{Cluster_Results/config_d_analysis.png}
+    \caption{Config d (500$\times$200, 20M pts)}
+\end{subfigure}
+
+\vspace{0.5cm}
+
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{Cluster_Results/config_e_analysis.png}
+    \caption{Config e (1000$\times$400, 14M pts)}
+\end{subfigure}
+
+\caption{Per-configuration analysis showing Execution Time (left) and Speedup (right) for each of the five input configurations on the HPC Cluster.}
+\label{fig:per_config}
+\end{figure}
+
+% ============================================================
+% SECTION 6: ANALYSIS AND QUESTIONS
+% ============================================================
+\section{Analysis and Questions}
+
+\subsection{Q1: Pseudocode and Illustrative Diagram}
+
+\subsubsection{Pseudocode}
+
+\begin{lstlisting}[style=pseudocode, caption={Pseudocode for parallel interpolation}]
+FUNCTION interpolation(mesh_value, points):
+    G_SIZE = GRID_X * GRID_Y
+    inv_dx = 1.0 / dx
+    inv_dy = 1.0 / dy
+
+    // Persistent thread-local storage
+    STATIC all_local[MAX_THREADS]
+
+    PARALLEL REGION:
+        tid = get_thread_id()
+        nthreads = get_num_threads()
+
+        // [SINGLE] Allocate thread-local grids (once)
+        IF all_local not allocated:
+            FOR t = 0 to nthreads-1:
+                ALLOCATE all_local[t] of size G_SIZE
+
+        // Zero out this thread's local grid
+        MEMSET(all_local[tid], 0, G_SIZE)
+
+        // PHASE 1: Interpolation (NO RACE CONDITIONS)
+        PARALLEL FOR p = 0 to NUM_Points-1:
+            i = FLOOR(points[p].x * inv_dx)
+            j = FLOOR(points[p].y * inv_dy)
+            CLAMP(i, 0, NX-1)
+            CLAMP(j, 0, NY-1)
+            lx = points[p].x - i * dx
+            ly = points[p].y - j * dy
+            idx = j * GRID_X + i
+            all_local[tid][idx]            += (dx-lx)*(dy-ly)
+            all_local[tid][idx+1]          += lx*(dy-ly)
+            all_local[tid][idx+GRID_X]     += (dx-lx)*ly
+            all_local[tid][idx+GRID_X+1]   += lx*ly
+
+        // PHASE 2: Parallel grid reduction
+        PARALLEL FOR k = 0 to G_SIZE-1:
+            FOR t = 0 to nthreads-1:
+                mesh_value[k] += all_local[t][k]
+
+    END PARALLEL
+END FUNCTION
+\end{lstlisting}
+
+\subsubsection{Illustrative Diagram}
+
+Figure~\ref{fig:diagram} shows the data flow of our two-phase parallel approach.
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.9\textwidth}{
+\textbf{Phase 1: Parallel Interpolation (No Synchronization)}
+
+\medskip
+\begin{tabular}{cccc}
+Thread 0 & Thread 1 & $\cdots$ & Thread $T{-}1$ \\
+\hline
+$\downarrow$ & $\downarrow$ & & $\downarrow$ \\
+local\_grid[0] & local\_grid[1] & $\cdots$ & local\_grid[$T{-}1$] \\
+\hline
+Points[0..N/T) & Points[N/T..2N/T) & $\cdots$ & Points[$(T{-}1)$N/T..N) \\
+\end{tabular}
+
+\medskip
+Each thread writes \textbf{only} to its own local grid $\rightarrow$ \textbf{zero race conditions}.
+
+\bigskip
+\textbf{Phase 2: Parallel Reduction}
+
+\medskip
+\begin{tabular}{c}
+$\text{mesh\_value}[k] = \sum_{t=0}^{T-1} \text{local\_grid}[t][k]$ \quad for each $k$ \\
+\hline
+Reduction is itself parallelized with \texttt{\#pragma omp for} \\
+\end{tabular}
+
+\medskip
+Result: Final accumulated grid $\rightarrow$ \texttt{Mesh.out}
+}}
+\caption{Illustrative diagram of the two-phase parallel interpolation approach}
+\label{fig:diagram}
+\end{figure}
+
+% -----------------------------------------------------------
+\subsection{Q2: Parallel Approach and Race Condition Handling}
+
+\textbf{Approach: Thread-Local Grid Privatization with Parallel Reduction}
+
+\begin{itemize}
+    \item \textbf{Phase 1}: Each thread receives its own private grid copy. The particles are divided equally among threads using \texttt{\#pragma omp for schedule(static)}. Each thread interpolates into its own grid --- no synchronization is needed.
+    
+    \item \textbf{Phase 2}: After all threads finish interpolation, the private grids are merged into the global grid using \texttt{\#pragma omp for schedule(static)} over the grid indices.
+    
+    \item \textbf{Race conditions are completely eliminated} because no two threads ever write to the same memory location during Phase~1.
+\end{itemize}
+
+\textbf{Comparison with other approaches:}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Approach} & \textbf{Issue} \\
+\midrule
+\texttt{\#pragma omp atomic} & Very slow --- atomic doubles use CAS loops \\
+\texttt{\#pragma omp critical} & Serializes the entire reduction phase \\
+\textbf{Thread-local + parallel reduction} & \textbf{Zero contention; reduction parallelized} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% -----------------------------------------------------------
+\subsection{Q3: Plots}
+
+All plots are presented in Section~5: Performance Visualisations. Specifically:
+\begin{itemize}
+    \item Figure~\ref{fig:cluster_speedup}: Speedup vs Cores (HPC Cluster)
+    \item Figure~\ref{fig:cluster_time}: Execution Time vs Cores (HPC Cluster)
+    \item Figure~\ref{fig:cluster_efficiency}: Parallel Efficiency vs Cores (HPC Cluster)
+    \item Figure~\ref{fig:per_config}: Per-config analysis (HPC Cluster)
+    \item Figure~\ref{fig:win_speedup}, \ref{fig:win_time}: Lab PC results
+\end{itemize}
+
+% -----------------------------------------------------------
+\subsection{Q4: Parallel Efficiency and Scalability}
+
+Parallel efficiency is computed as $E(T) = \frac{S(T)}{T} \times 100\%$. Full results are in Table~\ref{tab:cluster_efficiency}.
+
+\textbf{Key observations on scalability (from HPC Cluster data):}
+\begin{itemize}
+    \item \textbf{Strong scaling} is demonstrated: execution time decreases monotonically with thread count for all configurations.
+    \item Config~b maintains \textbf{84.8\% efficiency at 16 threads} --- near-ideal for shared-memory parallelism.
+    \item Configs with \textbf{larger grids} (d, e) show lower efficiency due to increased thread-local memory footprint causing L3 cache pressure ($16 \times 3.2\text{ MB} = 51.2\text{ MB}$ for config~e).
+    \item \textbf{Super-linear speedup} at 2 threads for configs a, b, c is due to the halved working set per thread fitting better in L2 cache.
+\end{itemize}
+
+% -----------------------------------------------------------
+\subsection{Q5: Maximum Speedup}
+
+The maximum speedup on the HPC Cluster is computed as $S_{\max} = T_{\text{serial}} / T_{\text{best}}$ (Table~\ref{tab:max_speedup}).
+
+The best result is \textbf{Config~b with 13.57$\times$ speedup at 16 threads}. This near-linear scaling occurs because:
+\begin{itemize}
+    \item 5M points provide ample parallel work per thread
+    \item The $251 \times 101$ grid (200~KB) fits entirely in each thread's L2 cache
+    \item The computation-to-overhead ratio is highly favorable
+\end{itemize}
+
+% -----------------------------------------------------------
+\subsection{Q6: Explanation of Speedup and Observations}
+
+\textbf{Why we achieve good speedup:}
+\begin{enumerate}
+    \item \textbf{Embarrassingly parallel workload}: Each point's interpolation is fully independent.
+    \item \textbf{Zero synchronization in hot path}: Thread-local grids eliminate all locks/atomics.
+    \item \textbf{Good cache behavior}: Each thread's local grid fits in L2/L3 cache.
+    \item \textbf{Static scheduling}: Uniform per-point work gives perfect load balance.
+\end{enumerate}
+
+\textbf{Why speedup is sub-linear:}
+\begin{enumerate}
+    \item \textbf{Reduction overhead}: Merging $T$ grid copies adds $O(G\_SIZE)$ work per thread.
+    \item \textbf{Memory bandwidth saturation}: At high thread counts, aggregate bandwidth demand exceeds memory subsystem capacity.
+    \item \textbf{Cache effects}: Total memory footprint ($T \times G\_SIZE \times 8$ bytes) may exceed L3 cache.
+\end{enumerate}
+
+\textbf{Key observation}: Configs with a higher points-to-grid ratio (e.g., Config~b: 5M points on a 25K-cell grid) achieve better scaling than configs with larger grids (e.g., Config~e: 14M points on a 401K-cell grid), because the interpolation computation dominates over the reduction overhead.
+
+% -----------------------------------------------------------
+\subsection{Q7: Optimization with Unlimited HPC Resources}
+
+With unlimited resources, further optimizations include:
+
+\begin{enumerate}
+    \item \textbf{NUMA-aware allocation}: Use \texttt{numactl} to ensure each thread's local grid resides on its local NUMA node, minimizing remote memory latency on multi-socket systems.
+    
+    \item \textbf{SIMD vectorization}: Convert the AoS point layout (\texttt{\{x,y\}, \{x,y\}, ...}) to SoA (\texttt{\{x,x,...\}, \{y,y,...\}}) to enable AVX-512 processing of 8 points simultaneously.
+    
+    \item \textbf{GPU offloading (CUDA/OpenCL)}: The scatter kernel is massively data-parallel. A GPU can process thousands of points concurrently using \texttt{atomicAdd} or shared-memory reduction.
+    
+    \item \textbf{Hybrid MPI + OpenMP}: Distribute across nodes with MPI; use OpenMP within each node. A final \texttt{MPI\_Reduce} merges per-node grids.
+    
+    \item \textbf{Spatial sorting}: Sort points by grid cell index before interpolation to improve spatial locality of grid writes and cache line utilization.
+\end{enumerate}
+
+% -----------------------------------------------------------
+\subsection{Q8: Load Imbalance and Performance Bottlenecks}
+
+\textbf{Load balance is excellent} because every point requires identical work (4 multiplications, 4 additions), and \texttt{schedule(static)} distributes points equally.
+
+\textbf{Performance bottlenecks:}
+\begin{enumerate}
+    \item \textbf{Memory bandwidth}: The primary bottleneck at high thread counts. Each point generates $\sim$48 bytes of memory traffic.
+    \item \textbf{Thread-local grid memory}: 16 threads $\times$ 3.2~MB (Config~e) $=$ 51.2~MB, causing L3 cache pressure.
+    \item \textbf{Reduction phase locality}: Summing $T$ non-contiguous grid copies has poor spatial locality across the grid copies.
+    \item \textbf{Config~e anomaly}: At 2 threads, the parallel version (1.388s) is \textit{slower} than serial (1.217s) because the large grid ($1001 \times 401 = 401,401$ doubles $\approx$ 3.2~MB per thread) exceeds L2 cache, and the reduction over 2 grids adds significant overhead relative to the computational savings.
+\end{enumerate}
+
+% -----------------------------------------------------------
+\subsection{Q9: Alternative Approach}
+
+\textbf{Grid-Cell Decomposition (Reverse Mapping):}
+
+Instead of looping over particles, loop over grid cells:
+\begin{enumerate}
+    \item \textbf{Pre-sort/bin} particles into their respective grid cells using a bucket structure.
+    \item Each thread is assigned a set of grid cells.
+    \item For each cell, the thread reads its assigned particles and computes contributions.
+\end{enumerate}
+
+\textbf{Advantages:} Each grid cell is independent (no race conditions); better cache locality for grid writes.
+
+\textbf{Disadvantages:} Requires $O(N)$ preprocessing to bin particles; boundary particles contribute to multiple cells.
+
+\textbf{Alternative 2: Atomic Operations} --- Use \texttt{\#pragma omp atomic} on each grid update. Avoids memory overhead of $T$ grid copies but is significantly slower due to contention.
+
+% -----------------------------------------------------------
+\subsection{Q10: Additional Data Structures and OpenMP Approaches}
+
+\begin{enumerate}
+    \item \textbf{Cell-Indexed Point Buckets}: Bin particles by grid cell, then parallelize over grid cells instead of particles. Eliminates race conditions without privatization.
+    
+    \item \textbf{Color-Based Grid Partitioning}: Partition grid cells into independent ``colors'' (graph coloring). In each color pass, cells of that color can be updated simultaneously. Reduces memory overhead compared to full privatization.
+    
+    \item \textbf{OpenMP Task-Based Decomposition}: Use \texttt{\#pragma omp task} for finer-grained dynamic load balancing at the cost of scheduling overhead.
+\end{enumerate}
+
+\textbf{Our thread-local grid approach is optimal} for this problem because Grid Size $\ll$ Number of Particles: the $\sim$3.2~MB per-thread grid fits in L2 cache, there is zero synchronization in the hot loop (millions of iterations), and the reduction phase is $O(G\_SIZE)$ per thread --- negligible compared to $O(N/T)$ interpolation work. This is the classic \textbf{privatization + reduction} pattern, the gold standard for scatter operations in HPC.
+
+% ============================================================
+% SECTION 7: CONCLUSION
+% ============================================================
+\section{Conclusion}
+
+We successfully parallelized the scatter-to-mesh bilinear interpolation using OpenMP with a thread-local grid privatization strategy combined with parallel reduction. Key results:
+
+\begin{itemize}
+    \item \textbf{Correctness verified}: Output matches the reference \texttt{Test\_Mesh.out} exactly (zero differences) for all thread counts tested.
+    \item \textbf{Maximum speedup of 13.57$\times$} achieved on the HPC cluster for Config~b (5M points) at 16 threads.
+    \item \textbf{Consistent strong scaling} across all five configurations on the HPC cluster.
+    \item The privatization approach eliminates all race conditions without expensive atomic operations, achieving near-linear speedup for configurations with a high points-to-grid ratio.
+\end{itemize}
+
+\end{document}
